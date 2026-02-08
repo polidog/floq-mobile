@@ -1,15 +1,27 @@
 export type TaskStatus = 'inbox' | 'next' | 'waiting' | 'someday' | 'done';
 
 export interface Task {
-  id: number;
+  id: string;
   title: string;
   status: TaskStatus;
-  project?: string;
+  description?: string;
+  isProject: boolean;
+  parentId?: string;
+  waitingFor?: string;
   context?: string;
+  dueDate?: number;
+  project?: string;
   notes?: string;
-  createdAt: string;
-  updatedAt: string;
+  createdAt: number;
+  updatedAt: number;
   completedAt?: string;
+}
+
+export interface Comment {
+  id: string;
+  taskId: string;
+  content: string;
+  createdAt: number;
 }
 
 export interface Project {

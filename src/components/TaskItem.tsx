@@ -1,26 +1,40 @@
-import React from 'react';
+import React, { useCallback } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { terminalTheme } from '../theme/terminal';
-import { Task, STATUS_LABELS, STATUS_COLORS } from '../types/task';
+import { Task, TaskStatus, STATUS_LABELS, STATUS_COLORS } from '../types/task';
 
 interface Props {
   task: Task;
   index: number;
-  onPress?: () => void;
-  onLongPress?: () => void;
+  onPress?: (id: string) => void;
+  onLongPress?: (id: string, status: TaskStatus) => void;
   selected?: boolean;
 }
 
-export function TaskItem({ task, index, onPress, onLongPress, selected }: Props) {
+export const TaskItem = React.memo(function TaskItem({ task, index, onPress, onLongPress, selected }: Props) {
   const statusColor = STATUS_COLORS[task.status];
   const statusLabel = STATUS_LABELS[task.status];
+  const isDone = task.status === 'done';
+
+  const handlePress = useCallback(() => {
+    onPress?.(task.id);
+  }, [onPress, task.id]);
+
+  const handleLongPress = useCallback(() => {
+    onLongPress?.(task.id, task.status);
+  }, [onLongPress, task.id, task.status]);
+
+  const accessibilityLabel = `Task ${index + 1}: ${task.title}, status ${statusLabel}${task.project ? `, project ${task.project}` : ''}${task.context ? `, context ${task.context}` : ''}${isDone ? ', completed' : ''}. Tap to view details, long press to toggle completion.`;
 
   return (
     <TouchableOpacity
-      onPress={onPress}
-      onLongPress={onLongPress}
+      onPress={handlePress}
+      onLongPress={handleLongPress}
       style={[styles.container, selected && styles.selected]}
       activeOpacity={0.7}
+      accessibilityRole="button"
+      accessibilityLabel={accessibilityLabel}
+      accessibilityState={{ checked: isDone }}
     >
       <Text style={styles.index}>{String(index + 1).padStart(2, '0')}</Text>
       <View style={styles.content}>
@@ -28,11 +42,11 @@ export function TaskItem({ task, index, onPress, onLongPress, selected }: Props)
           <Text
             style={[
               styles.title,
-              task.status === 'done' && styles.completed,
+              isDone && styles.completed,
             ]}
             numberOfLines={1}
           >
-            {task.status === 'done' ? `[x] ${task.title}` : `[ ] ${task.title}`}
+            {isDone ? `[x] ${task.title}` : `[ ] ${task.title}`}
           </Text>
         </View>
         <View style={styles.meta}>
@@ -49,7 +63,7 @@ export function TaskItem({ task, index, onPress, onLongPress, selected }: Props)
       </View>
     </TouchableOpacity>
   );
-}
+});
 
 const styles = StyleSheet.create({
   container: {
