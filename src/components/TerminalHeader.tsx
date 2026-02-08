@@ -14,7 +14,12 @@ export function TerminalHeader({ title, subtitle, showBack, onBack }: Props) {
     <View style={styles.header}>
       <View style={styles.titleRow}>
         {showBack && (
-          <TouchableOpacity onPress={onBack} style={styles.backButton}>
+          <TouchableOpacity
+            onPress={onBack}
+            style={styles.backButton}
+            accessibilityRole="button"
+            accessibilityLabel="Go back"
+          >
             <Text style={styles.backText}>{'<'}</Text>
           </TouchableOpacity>
         )}

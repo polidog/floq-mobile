@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useCallback } from 'react';
 import { View, TextInput, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { terminalTheme } from '../theme/terminal';
 
@@ -7,19 +7,19 @@ interface Props {
   placeholder?: string;
 }
 
-export function CommandInput({ onSubmit, placeholder = 'Type a command or task...' }: Props) {
+export const CommandInput = React.memo(function CommandInput({ onSubmit, placeholder = 'Type a command or task...' }: Props) {
   const [text, setText] = useState('');
 
-  const handleSubmit = () => {
+  const handleSubmit = useCallback(() => {
     if (text.trim()) {
       onSubmit(text.trim());
       setText('');
     }
-  };
+  }, [text, onSubmit]);
 
   return (
-    <View style={styles.container}>
-      <Text style={styles.prompt}>{'>'}</Text>
+    <View style={styles.container} accessibilityRole="search">
+      <Text style={styles.prompt} accessibilityElementsHidden>{'>'}</Text>
       <TextInput
         style={styles.input}
         value={text}
@@ -30,13 +30,20 @@ export function CommandInput({ onSubmit, placeholder = 'Type a command or task..
         autoCapitalize="none"
         autoCorrect={false}
         returnKeyType="done"
+        accessibilityLabel="Command input. Enter a task name or slash command"
+        accessibilityHint="Type a task to add or use /help for commands"
       />
-      <TouchableOpacity onPress={handleSubmit} style={styles.submitButton}>
+      <TouchableOpacity
+        onPress={handleSubmit}
+        style={styles.submitButton}
+        accessibilityRole="button"
+        accessibilityLabel="Submit command"
+      >
         <Text style={styles.submitText}>RET</Text>
       </TouchableOpacity>
     </View>
   );
-}
+});
 
 const styles = StyleSheet.create({
   container: {

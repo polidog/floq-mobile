@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useCallback } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, ScrollView } from 'react-native';
 import { terminalTheme } from '../theme/terminal';
 import { TaskStatus, STATUS_LABELS, STATUS_COLORS } from '../types/task';
@@ -11,9 +11,13 @@ interface Props {
 
 const STATUSES: (TaskStatus | 'all')[] = ['all', 'inbox', 'next', 'waiting', 'someday', 'done'];
 
-export function StatusTabs({ currentStatus, onStatusChange, counts }: Props) {
+export const StatusTabs = React.memo(function StatusTabs({ currentStatus, onStatusChange, counts }: Props) {
+  const handlePress = useCallback((status: TaskStatus | 'all') => {
+    onStatusChange(status);
+  }, [onStatusChange]);
+
   return (
-    <View style={styles.container}>
+    <View style={styles.container} accessibilityRole="tabbar" accessibilityLabel="Filter tasks by status">
       <ScrollView
         horizontal
         showsHorizontalScrollIndicator={false}
@@ -28,8 +32,11 @@ export function StatusTabs({ currentStatus, onStatusChange, counts }: Props) {
           return (
             <TouchableOpacity
               key={status}
-              onPress={() => onStatusChange(status)}
+              onPress={() => handlePress(status)}
               style={[styles.tab, isActive && styles.activeTab]}
+              accessibilityRole="tab"
+              accessibilityLabel={`${label}, ${count} tasks`}
+              accessibilityState={{ selected: isActive }}
             >
               <Text
                 style={[
@@ -53,7 +60,7 @@ export function StatusTabs({ currentStatus, onStatusChange, counts }: Props) {
       </ScrollView>
     </View>
   );
-}
+});
 
 const styles = StyleSheet.create({
   container: {

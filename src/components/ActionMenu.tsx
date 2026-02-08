@@ -24,7 +24,7 @@ interface Props {
   onSelect: (key: string) => void;
 }
 
-export function ActionMenu({ visible, onClose, title, actions, onSelect }: Props) {
+export const ActionMenu = React.memo(function ActionMenu({ visible, onClose, title, actions, onSelect }: Props) {
   return (
     <Modal
       visible={visible}
@@ -32,8 +32,12 @@ export function ActionMenu({ visible, onClose, title, actions, onSelect }: Props
       animationType="fade"
       onRequestClose={onClose}
     >
-      <Pressable style={styles.overlay} onPress={onClose}>
-        <View style={styles.container}>
+      <Pressable
+        style={styles.overlay}
+        onPress={onClose}
+        accessibilityLabel="Close menu"
+      >
+        <View style={styles.container} accessibilityRole="menu" accessibilityLabel={title}>
           <View style={styles.header}>
             <Text style={styles.title}>{title}</Text>
             <View style={styles.divider} />
@@ -50,6 +54,8 @@ export function ActionMenu({ visible, onClose, title, actions, onSelect }: Props
                 onSelect(action.key);
                 onClose();
               }}
+              accessibilityRole="menuitem"
+              accessibilityLabel={action.label}
             >
               <Text
                 style={[
@@ -64,14 +70,19 @@ export function ActionMenu({ visible, onClose, title, actions, onSelect }: Props
           ))}
 
           <View style={styles.divider} />
-          <TouchableOpacity style={styles.cancelAction} onPress={onClose}>
+          <TouchableOpacity
+            style={styles.cancelAction}
+            onPress={onClose}
+            accessibilityRole="button"
+            accessibilityLabel="Cancel"
+          >
             <Text style={styles.cancelText}>{'< '}CANCEL</Text>
           </TouchableOpacity>
         </View>
       </Pressable>
     </Modal>
   );
-}
+});
 
 const styles = StyleSheet.create({
   overlay: {

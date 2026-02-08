@@ -31,7 +31,15 @@ yarn-error.*
 *.pem
 
 # local env files
+.env
 .env*.local
+
+# EAS & Store secrets
+google-service-account-key.json
+*.keystore
+*.jks
+credentials.json
+authkey_*.p8
 
 # typescript
 *.tsbuildinfo

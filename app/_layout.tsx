@@ -7,6 +7,7 @@ import {
   JetBrainsMono_700Bold,
 } from '@expo-google-fonts/jetbrains-mono';
 import { terminalTheme } from '../src/theme/terminal';
+import { ErrorBoundary } from '../src/components/ErrorBoundary';
 
 export default function RootLayout() {
   const [fontsLoaded] = useFonts({
@@ -16,7 +17,7 @@ export default function RootLayout() {
 
   if (!fontsLoaded) {
     return (
-      <View style={styles.loadingContainer}>
+      <View style={styles.loadingContainer} accessibilityRole="progressbar" accessibilityLabel="Loading application">
         <Text style={styles.loadingText}>LOADING FLOQ...</Text>
         <ActivityIndicator color={terminalTheme.colors.primary} />
       </View>
@@ -24,16 +25,18 @@ export default function RootLayout() {
   }
 
   return (
-    <View style={styles.container}>
-      <StatusBar style="light" />
-      <Stack
-        screenOptions={{
-          headerShown: false,
-          contentStyle: { backgroundColor: terminalTheme.colors.background },
-          animation: 'fade',
-        }}
-      />
-    </View>
+    <ErrorBoundary>
+      <View style={styles.container}>
+        <StatusBar style="light" />
+        <Stack
+          screenOptions={{
+            headerShown: false,
+            contentStyle: { backgroundColor: terminalTheme.colors.background },
+            animation: 'fade',
+          }}
+        />
+      </View>
+    </ErrorBoundary>
   );
 }
 
