@@ -44,6 +44,9 @@ authkey_*.p8
 # typescript
 *.tsbuildinfo
 
+# Playwright MCP
+.playwright-mcp/
+
 # generated native folders
 /ios
 /android
