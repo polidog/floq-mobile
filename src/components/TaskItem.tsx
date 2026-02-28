@@ -1,7 +1,7 @@
 import React, { useCallback } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { terminalTheme } from '../theme/terminal';
-import { Task, TaskStatus, STATUS_LABELS, STATUS_COLORS } from '../types/task';
+import { Task, TaskStatus, STATUS_LABELS, STATUS_COLORS, EFFORT_LABELS } from '../types/task';
 
 interface Props {
   task: Task;
@@ -46,18 +46,32 @@ export const TaskItem = React.memo(function TaskItem({ task, index, onPress, onL
             ]}
             numberOfLines={1}
           >
-            {isDone ? `[x] ${task.title}` : `[ ] ${task.title}`}
+            {task.isFocused ? '★ ' : ''}{isDone ? `[x] ${task.title}` : `[ ] ${task.title}`}
           </Text>
         </View>
         <View style={styles.meta}>
           <Text style={[styles.status, { color: statusColor }]}>
             {statusLabel}
           </Text>
+          {task.effort && (
+            <Text style={styles.effort}>[{EFFORT_LABELS[task.effort]}]</Text>
+          )}
           {task.project && (
             <Text style={styles.project}>+{task.project}</Text>
           )}
           {task.context && (
             <Text style={styles.context}>@{task.context}</Text>
+          )}
+          {task.status === 'waiting' && task.waitingFor && (
+            <Text style={styles.waitingFor}>→{task.waitingFor}</Text>
+          )}
+          {task.dueDate && (
+            <Text style={[
+              styles.dueDate,
+              task.dueDate < Math.floor(Date.now() / 1000) - (Math.floor(Date.now() / 1000) % 86400) && { color: terminalTheme.colors.error },
+            ]}>
+              {new Date(task.dueDate * 1000).toLocaleDateString()}
+            </Text>
           )}
         </View>
       </View>
@@ -121,5 +135,20 @@ const styles = StyleSheet.create({
     fontFamily: terminalTheme.fonts.mono,
     fontSize: terminalTheme.fontSize.xs,
     color: terminalTheme.colors.warning,
+  },
+  effort: {
+    fontFamily: terminalTheme.fonts.mono,
+    fontSize: terminalTheme.fontSize.xs,
+    color: terminalTheme.colors.textMuted,
+  },
+  waitingFor: {
+    fontFamily: terminalTheme.fonts.mono,
+    fontSize: terminalTheme.fontSize.xs,
+    color: terminalTheme.colors.primary,
+  },
+  dueDate: {
+    fontFamily: terminalTheme.fonts.mono,
+    fontSize: terminalTheme.fontSize.xs,
+    color: terminalTheme.colors.textMuted,
   },
 });

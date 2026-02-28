@@ -1,12 +1,12 @@
 import { useState, useEffect, useCallback } from 'react';
-import { View, Text, StyleSheet, ScrollView, TextInput, TouchableOpacity } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TextInput, TouchableOpacity, FlatList } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { TerminalContainer } from '../../src/components/TerminalContainer';
 import { TerminalHeader } from '../../src/components/TerminalHeader';
 import { ActionMenu } from '../../src/components/ActionMenu';
 import { terminalTheme } from '../../src/theme/terminal';
-import { Task, TaskStatus, STATUS_LABELS, STATUS_COLORS } from '../../src/types/task';
+import { Task, TaskStatus, STATUS_LABELS, STATUS_COLORS, Comment, EffortSize, EFFORT_LABELS } from '../../src/types/task';
 import * as db from '../../src/db/database';
 
 const STATUS_ACTIONS = [
@@ -17,8 +17,33 @@ const STATUS_ACTIONS = [
   { key: 'done', label: 'Mark as DONE', color: STATUS_COLORS.done },
 ];
 
+const EFFORT_ACTIONS = [
+  { key: 'small', label: 'Small (S)', color: terminalTheme.colors.success },
+  { key: 'medium', label: 'Medium (M)', color: terminalTheme.colors.warning },
+  { key: 'large', label: 'Large (L)', color: terminalTheme.colors.error },
+  { key: 'clear', label: 'Clear', color: terminalTheme.colors.textMuted },
+];
+
 function formatTimestamp(ts: number): string {
   return new Date(ts * 1000).toLocaleString();
+}
+
+function formatDate(ts: number): string {
+  return new Date(ts * 1000).toLocaleDateString();
+}
+
+function parseDateInput(input: string): number | null {
+  const match = input.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return null;
+  const date = new Date(parseInt(match[1]), parseInt(match[2]) - 1, parseInt(match[3]));
+  if (isNaN(date.getTime())) return null;
+  return Math.floor(date.getTime() / 1000);
+}
+
+function isDueDateOverdue(ts: number): boolean {
+  const now = Math.floor(Date.now() / 1000);
+  const todayStart = now - (now % 86400);
+  return ts < todayStart;
 }
 
 export default function TaskDetailScreen() {
@@ -28,9 +53,24 @@ export default function TaskDetailScreen() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showStatusMenu, setShowStatusMenu] = useState(false);
+  const [showEffortMenu, setShowEffortMenu] = useState(false);
   const [editingNotes, setEditingNotes] = useState(false);
   const [notes, setNotes] = useState('');
   const [confirmDelete, setConfirmDelete] = useState(false);
+
+  // Comments state
+  const [comments, setComments] = useState<Comment[]>([]);
+  const [newComment, setNewComment] = useState('');
+
+  // Editable fields
+  const [editingWaitingFor, setEditingWaitingFor] = useState(false);
+  const [waitingForInput, setWaitingForInput] = useState('');
+  const [editingProject, setEditingProject] = useState(false);
+  const [projectInput, setProjectInput] = useState('');
+  const [editingContext, setEditingContext] = useState(false);
+  const [contextInput, setContextInput] = useState('');
+  const [editingDueDate, setEditingDueDate] = useState(false);
+  const [dueDateInput, setDueDateInput] = useState('');
 
   const loadTask = useCallback(async () => {
     if (!id) return;
@@ -43,6 +83,8 @@ export default function TaskDetailScreen() {
       if (found) {
         setTask(found);
         setNotes(found.notes || '');
+        const taskComments = await db.getComments(id);
+        setComments(taskComments);
       } else {
         setError('Task not found');
       }
@@ -110,21 +152,127 @@ export default function TaskDetailScreen() {
     }
   }, [task, confirmDelete, router]);
 
-  const handleCloseStatusMenu = useCallback(() => {
-    setShowStatusMenu(false);
+  // Focus toggle
+  const handleToggleFocus = useCallback(async () => {
+    if (!task) return;
+    try {
+      setError(null);
+      const newFocused = !task.isFocused;
+      await db.updateTask(task.id, { isFocused: newFocused });
+      setTask({ ...task, isFocused: newFocused });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to update focus');
+    }
+  }, [task]);
+
+  // Effort
+  const handleEffortChange = useCallback(async (key: string) => {
+    if (!task) return;
+    try {
+      setError(null);
+      const effort = key === 'clear' ? undefined : key as EffortSize;
+      await db.updateTask(task.id, { effort });
+      setTask({ ...task, effort });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to update effort');
+    }
+  }, [task]);
+
+  // Comments
+  const handleAddComment = useCallback(async () => {
+    if (!task || !newComment.trim()) return;
+    try {
+      setError(null);
+      const comment = await db.addComment(task.id, newComment);
+      setComments(prev => [comment, ...prev]);
+      setNewComment('');
+      db.syncDatabase().catch(() => {});
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to add comment');
+    }
+  }, [task, newComment]);
+
+  const handleDeleteComment = useCallback(async (commentId: string) => {
+    try {
+      setError(null);
+      await db.deleteComment(commentId);
+      setComments(prev => prev.filter(c => c.id !== commentId));
+      db.syncDatabase().catch(() => {});
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to delete comment');
+    }
   }, []);
 
-  const handleOpenStatusMenu = useCallback(() => {
-    setShowStatusMenu(true);
-  }, []);
+  // Waiting For
+  const handleSaveWaitingFor = useCallback(async () => {
+    if (!task) return;
+    try {
+      setError(null);
+      const waitingFor = waitingForInput.trim() || undefined;
+      await db.updateTask(task.id, { waitingFor });
+      setTask({ ...task, waitingFor });
+      setEditingWaitingFor(false);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to update waiting for');
+    }
+  }, [task, waitingForInput]);
 
-  const handleStartEditNotes = useCallback(() => {
-    setEditingNotes(true);
-  }, []);
+  // Project
+  const handleSaveProject = useCallback(async () => {
+    if (!task) return;
+    try {
+      setError(null);
+      const project = projectInput.trim() || undefined;
+      await db.updateTask(task.id, { project });
+      setTask({ ...task, project });
+      setEditingProject(false);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to update project');
+    }
+  }, [task, projectInput]);
 
-  const handleCancelEditNotes = useCallback(() => {
-    setEditingNotes(false);
-    setNotes(task?.notes || '');
+  // Context
+  const handleSaveContext = useCallback(async () => {
+    if (!task) return;
+    try {
+      setError(null);
+      const context = contextInput.trim() || undefined;
+      await db.updateTask(task.id, { context });
+      setTask({ ...task, context });
+      setEditingContext(false);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to update context');
+    }
+  }, [task, contextInput]);
+
+  // Due Date
+  const handleSaveDueDate = useCallback(async () => {
+    if (!task) return;
+    try {
+      setError(null);
+      const dueDate = parseDateInput(dueDateInput.trim());
+      if (dueDateInput.trim() && dueDate === null) {
+        setError('Invalid date format. Use YYYY-MM-DD');
+        return;
+      }
+      await db.updateTask(task.id, { dueDate: dueDate ?? undefined });
+      setTask({ ...task, dueDate: dueDate ?? undefined });
+      setEditingDueDate(false);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to update due date');
+    }
+  }, [task, dueDateInput]);
+
+  const handleClearDueDate = useCallback(async () => {
+    if (!task) return;
+    try {
+      setError(null);
+      await db.updateTask(task.id, { dueDate: undefined });
+      setTask({ ...task, dueDate: undefined });
+      setEditingDueDate(false);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to clear due date');
+    }
   }, [task]);
 
   if (loading) {
@@ -178,10 +326,23 @@ export default function TaskDetailScreen() {
         )}
 
         <ScrollView style={styles.content}>
-          {/* Title */}
-          <View style={styles.section} accessibilityRole="text" accessibilityLabel={`Task title: ${task.title}`}>
-            <Text style={styles.label}>TITLE</Text>
-            <Text style={styles.title}>{task.title}</Text>
+          {/* Title + Focus */}
+          <View style={styles.section}>
+            <View style={styles.labelRow}>
+              <Text style={styles.label}>TITLE</Text>
+              <TouchableOpacity
+                onPress={handleToggleFocus}
+                accessibilityRole="button"
+                accessibilityLabel={task.isFocused ? 'Remove focus' : 'Set focus'}
+              >
+                <Text style={[styles.focusButton, task.isFocused && styles.focusActive]}>
+                  {task.isFocused ? '[★ focused]' : '[☆ focus]'}
+                </Text>
+              </TouchableOpacity>
+            </View>
+            <Text style={styles.title}>
+              {task.isFocused ? '★ ' : ''}{task.title}
+            </Text>
           </View>
 
           {/* Status */}
@@ -189,7 +350,7 @@ export default function TaskDetailScreen() {
             <Text style={styles.label}>STATUS</Text>
             <TouchableOpacity
               style={styles.statusButton}
-              onPress={handleOpenStatusMenu}
+              onPress={() => setShowStatusMenu(true)}
               accessibilityRole="button"
               accessibilityLabel={`Status: ${STATUS_LABELS[task.status]}. Tap to change status.`}
             >
@@ -200,21 +361,226 @@ export default function TaskDetailScreen() {
             </TouchableOpacity>
           </View>
 
-          {/* Project */}
-          {task.project && (
-            <View style={styles.section} accessibilityRole="text" accessibilityLabel={`Project: ${task.project}`}>
-              <Text style={styles.label}>PROJECT</Text>
-              <Text style={styles.project}>+{task.project}</Text>
+          {/* Waiting For (shown when status is waiting) */}
+          {task.status === 'waiting' && (
+            <View style={styles.section}>
+              <View style={styles.labelRow}>
+                <Text style={styles.label}>WAITING FOR</Text>
+                {!editingWaitingFor && (
+                  <TouchableOpacity
+                    onPress={() => { setWaitingForInput(task.waitingFor || ''); setEditingWaitingFor(true); }}
+                    accessibilityRole="button"
+                    accessibilityLabel="Edit waiting for"
+                  >
+                    <Text style={styles.editButton}>[edit]</Text>
+                  </TouchableOpacity>
+                )}
+              </View>
+              {editingWaitingFor ? (
+                <View>
+                  <TextInput
+                    style={styles.fieldInput}
+                    value={waitingForInput}
+                    onChangeText={setWaitingForInput}
+                    placeholder="Who are you waiting for?"
+                    placeholderTextColor={terminalTheme.colors.textDim}
+                    autoFocus
+                  />
+                  <View style={styles.notesActions}>
+                    <TouchableOpacity onPress={() => setEditingWaitingFor(false)}>
+                      <Text style={styles.cancelButton}>[cancel]</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity onPress={handleSaveWaitingFor}>
+                      <Text style={styles.saveButton}>[save]</Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              ) : (
+                <Text style={[styles.fieldValue, { color: terminalTheme.colors.warning }]}>
+                  {task.waitingFor ? `→ ${task.waitingFor}` : '(not set)'}
+                </Text>
+              )}
             </View>
           )}
 
-          {/* Context */}
-          {task.context && (
-            <View style={styles.section} accessibilityRole="text" accessibilityLabel={`Context: ${task.context}`}>
-              <Text style={styles.label}>CONTEXT</Text>
-              <Text style={styles.context}>@{task.context}</Text>
+          {/* Effort */}
+          <View style={styles.section}>
+            <Text style={styles.label}>EFFORT</Text>
+            <TouchableOpacity
+              style={styles.statusButton}
+              onPress={() => setShowEffortMenu(true)}
+              accessibilityRole="button"
+              accessibilityLabel={`Effort: ${task.effort ? EFFORT_LABELS[task.effort] : 'not set'}. Tap to change.`}
+            >
+              {task.effort ? (
+                <Text style={[styles.effortBadge, {
+                  color: task.effort === 'small' ? terminalTheme.colors.success
+                    : task.effort === 'medium' ? terminalTheme.colors.warning
+                    : terminalTheme.colors.error,
+                }]}>
+                  [{EFFORT_LABELS[task.effort]}]
+                </Text>
+              ) : (
+                <Text style={styles.fieldValueMuted}>(not set)</Text>
+              )}
+              <Text style={styles.changeHint}>[tap to change]</Text>
+            </TouchableOpacity>
+          </View>
+
+          {/* Project */}
+          <View style={styles.section}>
+            <View style={styles.labelRow}>
+              <Text style={styles.label}>PROJECT</Text>
+              {!editingProject && (
+                <View style={styles.actionRow}>
+                  <TouchableOpacity
+                    onPress={() => { setProjectInput(task.project || ''); setEditingProject(true); }}
+                    accessibilityRole="button"
+                  >
+                    <Text style={styles.editButton}>[edit]</Text>
+                  </TouchableOpacity>
+                  {task.project && (
+                    <TouchableOpacity
+                      onPress={async () => {
+                        await db.updateTask(task.id, { project: undefined });
+                        setTask({ ...task, project: undefined });
+                      }}
+                    >
+                      <Text style={styles.clearButton}>[clear]</Text>
+                    </TouchableOpacity>
+                  )}
+                </View>
+              )}
             </View>
-          )}
+            {editingProject ? (
+              <View>
+                <TextInput
+                  style={styles.fieldInput}
+                  value={projectInput}
+                  onChangeText={setProjectInput}
+                  placeholder="Project name"
+                  placeholderTextColor={terminalTheme.colors.textDim}
+                  autoFocus
+                />
+                <View style={styles.notesActions}>
+                  <TouchableOpacity onPress={() => setEditingProject(false)}>
+                    <Text style={styles.cancelButton}>[cancel]</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity onPress={handleSaveProject}>
+                    <Text style={styles.saveButton}>[save]</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            ) : (
+              <Text style={styles.project}>
+                {task.project ? `+${task.project}` : '(not set)'}
+              </Text>
+            )}
+          </View>
+
+          {/* Context */}
+          <View style={styles.section}>
+            <View style={styles.labelRow}>
+              <Text style={styles.label}>CONTEXT</Text>
+              {!editingContext && (
+                <View style={styles.actionRow}>
+                  <TouchableOpacity
+                    onPress={() => { setContextInput(task.context || ''); setEditingContext(true); }}
+                    accessibilityRole="button"
+                  >
+                    <Text style={styles.editButton}>[edit]</Text>
+                  </TouchableOpacity>
+                  {task.context && (
+                    <TouchableOpacity
+                      onPress={async () => {
+                        await db.updateTask(task.id, { context: undefined });
+                        setTask({ ...task, context: undefined });
+                      }}
+                    >
+                      <Text style={styles.clearButton}>[clear]</Text>
+                    </TouchableOpacity>
+                  )}
+                </View>
+              )}
+            </View>
+            {editingContext ? (
+              <View>
+                <TextInput
+                  style={styles.fieldInput}
+                  value={contextInput}
+                  onChangeText={setContextInput}
+                  placeholder="Context (e.g. work, home)"
+                  placeholderTextColor={terminalTheme.colors.textDim}
+                  autoFocus
+                />
+                <View style={styles.notesActions}>
+                  <TouchableOpacity onPress={() => setEditingContext(false)}>
+                    <Text style={styles.cancelButton}>[cancel]</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity onPress={handleSaveContext}>
+                    <Text style={styles.saveButton}>[save]</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            ) : (
+              <Text style={styles.context}>
+                {task.context ? `@${task.context}` : '(not set)'}
+              </Text>
+            )}
+          </View>
+
+          {/* Due Date */}
+          <View style={styles.section}>
+            <View style={styles.labelRow}>
+              <Text style={styles.label}>DUE DATE</Text>
+              {!editingDueDate && (
+                <View style={styles.actionRow}>
+                  <TouchableOpacity
+                    onPress={() => {
+                      setDueDateInput(task.dueDate ? new Date(task.dueDate * 1000).toISOString().slice(0, 10) : '');
+                      setEditingDueDate(true);
+                    }}
+                    accessibilityRole="button"
+                  >
+                    <Text style={styles.editButton}>[edit]</Text>
+                  </TouchableOpacity>
+                  {task.dueDate && (
+                    <TouchableOpacity onPress={handleClearDueDate}>
+                      <Text style={styles.clearButton}>[clear]</Text>
+                    </TouchableOpacity>
+                  )}
+                </View>
+              )}
+            </View>
+            {editingDueDate ? (
+              <View>
+                <TextInput
+                  style={styles.fieldInput}
+                  value={dueDateInput}
+                  onChangeText={setDueDateInput}
+                  placeholder="YYYY-MM-DD"
+                  placeholderTextColor={terminalTheme.colors.textDim}
+                  autoFocus
+                />
+                <View style={styles.notesActions}>
+                  <TouchableOpacity onPress={() => setEditingDueDate(false)}>
+                    <Text style={styles.cancelButton}>[cancel]</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity onPress={handleSaveDueDate}>
+                    <Text style={styles.saveButton}>[save]</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            ) : (
+              <Text style={[
+                styles.fieldValue,
+                task.dueDate && isDueDateOverdue(task.dueDate) && { color: terminalTheme.colors.error },
+              ]}>
+                {task.dueDate ? formatDate(task.dueDate) : '(not set)'}
+                {task.dueDate && isDueDateOverdue(task.dueDate) ? ' (overdue)' : ''}
+              </Text>
+            )}
+          </View>
 
           {/* Notes */}
           <View style={styles.section}>
@@ -222,7 +588,7 @@ export default function TaskDetailScreen() {
               <Text style={styles.label}>NOTES</Text>
               {!editingNotes && (
                 <TouchableOpacity
-                  onPress={handleStartEditNotes}
+                  onPress={() => setEditingNotes(true)}
                   accessibilityRole="button"
                   accessibilityLabel="Edit notes"
                 >
@@ -240,21 +606,15 @@ export default function TaskDetailScreen() {
                   placeholder="Add notes..."
                   placeholderTextColor={terminalTheme.colors.textDim}
                   accessibilityLabel="Notes input"
-                  accessibilityHint="Enter notes for this task"
                 />
                 <View style={styles.notesActions}>
                   <TouchableOpacity
-                    onPress={handleCancelEditNotes}
+                    onPress={() => { setEditingNotes(false); setNotes(task.notes || ''); }}
                     accessibilityRole="button"
-                    accessibilityLabel="Cancel editing notes"
                   >
                     <Text style={styles.cancelButton}>[cancel]</Text>
                   </TouchableOpacity>
-                  <TouchableOpacity
-                    onPress={handleSaveNotes}
-                    accessibilityRole="button"
-                    accessibilityLabel="Save notes"
-                  >
+                  <TouchableOpacity onPress={handleSaveNotes} accessibilityRole="button">
                     <Text style={styles.saveButton}>[save]</Text>
                   </TouchableOpacity>
                 </View>
@@ -266,14 +626,54 @@ export default function TaskDetailScreen() {
             )}
           </View>
 
+          {/* Comments */}
+          <View style={styles.section}>
+            <Text style={styles.label}>COMMENTS ({comments.length})</Text>
+            <View style={styles.commentInputRow}>
+              <TextInput
+                style={styles.commentInput}
+                value={newComment}
+                onChangeText={setNewComment}
+                placeholder="Add comment..."
+                placeholderTextColor={terminalTheme.colors.textDim}
+              />
+              <TouchableOpacity
+                onPress={handleAddComment}
+                accessibilityRole="button"
+                accessibilityLabel="Add comment"
+              >
+                <Text style={[styles.saveButton, !newComment.trim() && { color: terminalTheme.colors.textDim }]}>[add]</Text>
+              </TouchableOpacity>
+            </View>
+            {comments.length === 0 ? (
+              <Text style={styles.fieldValueMuted}>(no comments)</Text>
+            ) : (
+              comments.map(comment => (
+                <View key={comment.id} style={styles.commentItem}>
+                  <View style={styles.commentContent}>
+                    <Text style={styles.commentText}>{comment.content}</Text>
+                    <Text style={styles.commentTimestamp}>{formatTimestamp(comment.createdAt)}</Text>
+                  </View>
+                  <TouchableOpacity
+                    onPress={() => handleDeleteComment(comment.id)}
+                    accessibilityRole="button"
+                    accessibilityLabel="Delete comment"
+                  >
+                    <Text style={styles.commentDelete}>[x]</Text>
+                  </TouchableOpacity>
+                </View>
+              ))
+            )}
+          </View>
+
           {/* Timestamps */}
-          <View style={styles.section} accessibilityRole="text" accessibilityLabel={`Created at ${formatTimestamp(task.createdAt)}`}>
+          <View style={styles.section} accessibilityRole="text">
             <Text style={styles.label}>CREATED</Text>
             <Text style={styles.timestamp}>{formatTimestamp(task.createdAt)}</Text>
           </View>
 
           {task.completedAt && (
-            <View style={styles.section} accessibilityRole="text" accessibilityLabel={`Completed at ${task.completedAt}`}>
+            <View style={styles.section} accessibilityRole="text">
               <Text style={styles.label}>COMPLETED</Text>
               <Text style={styles.timestamp}>{task.completedAt}</Text>
             </View>
@@ -294,10 +694,18 @@ export default function TaskDetailScreen() {
 
         <ActionMenu
           visible={showStatusMenu}
-          onClose={handleCloseStatusMenu}
+          onClose={() => setShowStatusMenu(false)}
           title="CHANGE STATUS"
           actions={STATUS_ACTIONS}
           onSelect={handleStatusChange}
+        />
+
+        <ActionMenu
+          visible={showEffortMenu}
+          onClose={() => setShowEffortMenu(false)}
+          title="SET EFFORT"
+          actions={EFFORT_ACTIONS}
+          onSelect={handleEffortChange}
         />
       </SafeAreaView>
     </TerminalContainer>
@@ -335,6 +743,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
   },
+  actionRow: {
+    flexDirection: 'row',
+    gap: terminalTheme.spacing.sm,
+  },
   label: {
     fontFamily: terminalTheme.fonts.mono,
     fontSize: terminalTheme.fontSize.xs,
@@ -345,6 +757,14 @@ const styles = StyleSheet.create({
     fontFamily: terminalTheme.fonts.mono,
     fontSize: terminalTheme.fontSize.lg,
     color: terminalTheme.colors.text,
+  },
+  focusButton: {
+    fontFamily: terminalTheme.fonts.mono,
+    fontSize: terminalTheme.fontSize.xs,
+    color: terminalTheme.colors.textDim,
+  },
+  focusActive: {
+    color: terminalTheme.colors.warning,
   },
   statusButton: {
     flexDirection: 'row',
@@ -360,6 +780,10 @@ const styles = StyleSheet.create({
     fontSize: terminalTheme.fontSize.xs,
     color: terminalTheme.colors.textDim,
   },
+  effortBadge: {
+    fontFamily: terminalTheme.fonts.monoBold,
+    fontSize: terminalTheme.fontSize.md,
+  },
   project: {
     fontFamily: terminalTheme.fonts.mono,
     fontSize: terminalTheme.fontSize.md,
@@ -369,6 +793,26 @@ const styles = StyleSheet.create({
     fontFamily: terminalTheme.fonts.mono,
     fontSize: terminalTheme.fontSize.md,
     color: terminalTheme.colors.warning,
+  },
+  fieldValue: {
+    fontFamily: terminalTheme.fonts.mono,
+    fontSize: terminalTheme.fontSize.md,
+    color: terminalTheme.colors.text,
+  },
+  fieldValueMuted: {
+    fontFamily: terminalTheme.fonts.mono,
+    fontSize: terminalTheme.fontSize.md,
+    color: terminalTheme.colors.textMuted,
+  },
+  fieldInput: {
+    fontFamily: terminalTheme.fonts.mono,
+    fontSize: terminalTheme.fontSize.md,
+    color: terminalTheme.colors.text,
+    backgroundColor: terminalTheme.colors.surface,
+    borderWidth: 1,
+    borderColor: terminalTheme.colors.border,
+    borderRadius: terminalTheme.borderRadius.sm,
+    padding: terminalTheme.spacing.md,
   },
   notes: {
     fontFamily: terminalTheme.fonts.mono,
@@ -399,6 +843,11 @@ const styles = StyleSheet.create({
     fontSize: terminalTheme.fontSize.xs,
     color: terminalTheme.colors.primary,
   },
+  clearButton: {
+    fontFamily: terminalTheme.fonts.mono,
+    fontSize: terminalTheme.fontSize.xs,
+    color: terminalTheme.colors.error,
+  },
   cancelButton: {
     fontFamily: terminalTheme.fonts.mono,
     fontSize: terminalTheme.fontSize.sm,
@@ -408,6 +857,51 @@ const styles = StyleSheet.create({
     fontFamily: terminalTheme.fonts.mono,
     fontSize: terminalTheme.fontSize.sm,
     color: terminalTheme.colors.success,
+  },
+  // Comments
+  commentInputRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: terminalTheme.spacing.sm,
+    marginBottom: terminalTheme.spacing.sm,
+  },
+  commentInput: {
+    flex: 1,
+    fontFamily: terminalTheme.fonts.mono,
+    fontSize: terminalTheme.fontSize.sm,
+    color: terminalTheme.colors.text,
+    backgroundColor: terminalTheme.colors.surface,
+    borderWidth: 1,
+    borderColor: terminalTheme.colors.border,
+    borderRadius: terminalTheme.borderRadius.sm,
+    padding: terminalTheme.spacing.sm,
+  },
+  commentItem: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    paddingVertical: terminalTheme.spacing.sm,
+    borderBottomWidth: 1,
+    borderBottomColor: terminalTheme.colors.border,
+  },
+  commentContent: {
+    flex: 1,
+  },
+  commentText: {
+    fontFamily: terminalTheme.fonts.mono,
+    fontSize: terminalTheme.fontSize.sm,
+    color: terminalTheme.colors.text,
+  },
+  commentTimestamp: {
+    fontFamily: terminalTheme.fonts.mono,
+    fontSize: terminalTheme.fontSize.xs,
+    color: terminalTheme.colors.textDim,
+    marginTop: 2,
+  },
+  commentDelete: {
+    fontFamily: terminalTheme.fonts.mono,
+    fontSize: terminalTheme.fontSize.xs,
+    color: terminalTheme.colors.error,
+    paddingLeft: terminalTheme.spacing.sm,
   },
   timestamp: {
     fontFamily: terminalTheme.fonts.mono,

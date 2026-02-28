@@ -83,8 +83,8 @@ describe('initDatabase (Native環境)', () => {
     // Act
     await database.getTasks();
 
-    // Assert
-    expect(mockExecAsync).toHaveBeenCalledTimes(1);
+    // Assert: 1 for CREATE TABLEs + 2 for ALTER TABLE migrations
+    expect(mockExecAsync).toHaveBeenCalledTimes(3);
     const sql = mockExecAsync.mock.calls[0][0] as string;
     expect(sql).toContain('CREATE TABLE IF NOT EXISTS tasks');
     expect(sql).toContain('CREATE TABLE IF NOT EXISTS comments');
@@ -163,6 +163,8 @@ describe('getTasks (Native環境)', () => {
         due_date: null,
         project: null,
         notes: null,
+        is_focused: 0,
+        effort: null,
         created_at: 1704067200,
         updated_at: 1704067200,
         completed_at: null,
@@ -197,6 +199,8 @@ describe('getTasks (Native環境)', () => {
         due_date: null,
         project: 'MyProject',
         notes: null,
+        is_focused: 0,
+        effort: null,
         created_at: 1704153600,
         updated_at: 1704153600,
         completed_at: null,
@@ -232,6 +236,8 @@ describe('getTasks (Native環境)', () => {
         due_date: null,
         project: null,
         notes: null,
+        is_focused: 0,
+        effort: null,
         created_at: 1704067200,
         updated_at: 1704067200,
         completed_at: null,
@@ -269,6 +275,8 @@ describe('getTasks (Native環境)', () => {
         due_date: null,
         project: null,
         notes: null,
+        is_focused: 0,
+        effort: null,
         created_at: 1718445600,
         updated_at: 1718452800,
         completed_at: null,
@@ -310,6 +318,8 @@ describe('addTask (Native環境)', () => {
         due_date: null,
         project: null,
         notes: null,
+        is_focused: 0,
+        effort: null,
         created_at: 1704067200,
         updated_at: 1704067200,
         completed_at: null,
@@ -346,6 +356,8 @@ describe('addTask (Native環境)', () => {
         due_date: null,
         project: null,
         notes: null,
+        is_focused: 0,
+        effort: null,
         created_at: 1704067200,
         updated_at: 1704067200,
         completed_at: null,

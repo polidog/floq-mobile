@@ -1,5 +1,5 @@
 import { Platform } from 'react-native';
-import { Task, TaskStatus } from '../types/task';
+import { Task, TaskStatus, EffortSize, Comment } from '../types/task';
 import { getTursoConfig } from './settings';
 
 function generateUUID(): string {
@@ -17,6 +17,7 @@ function nowUnix(): number {
 
 // Web用のインメモリストレージ
 let memoryTasks: Task[] = [];
+let memoryComments: Comment[] = [];
 
 // Native用のSQLiteインポート
 let SQLite: typeof import('expo-sqlite') | null = null;
@@ -107,6 +108,19 @@ async function initNativeDatabase(): Promise<void> {
     ${CREATE_CONTEXTS_TABLE}
     ${CREATE_INDEXES}
   `);
+
+  // Migrate: add new columns if not present
+  const migrations = [
+    'ALTER TABLE tasks ADD COLUMN is_focused INTEGER NOT NULL DEFAULT 0',
+    'ALTER TABLE tasks ADD COLUMN effort TEXT',
+  ];
+  for (const sql of migrations) {
+    try {
+      await db.execAsync(sql);
+    } catch {
+      // Column already exists, skip
+    }
+  }
 }
 
 let initialized = false;
@@ -147,9 +161,18 @@ interface TaskRow {
   due_date: number | null;
   project: string | null;
   notes: string | null;
+  is_focused: number;
+  effort: string | null;
   created_at: number;
   updated_at: number;
   completed_at: string | null;
+}
+
+interface CommentRow {
+  id: string;
+  task_id: string;
+  content: string;
+  created_at: number;
 }
 
 function rowToTask(row: TaskRow): Task {
@@ -165,9 +188,20 @@ function rowToTask(row: TaskRow): Task {
     dueDate: row.due_date ?? undefined,
     project: row.project ?? undefined,
     notes: row.notes ?? undefined,
+    isFocused: row.is_focused === 1,
+    effort: (row.effort as EffortSize) ?? undefined,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     completedAt: row.completed_at ?? undefined,
+  };
+}
+
+function rowToComment(row: CommentRow): Comment {
+  return {
+    id: row.id,
+    taskId: row.task_id,
+    content: row.content,
+    createdAt: row.created_at,
   };
 }
 
@@ -209,6 +243,7 @@ export async function addTask(title: string, status: TaskStatus = 'inbox'): Prom
       title,
       status,
       isProject: false,
+      isFocused: false,
       createdAt: now,
       updatedAt: now,
     };
@@ -258,7 +293,7 @@ export async function updateTaskStatus(id: string, status: TaskStatus): Promise<
 
 export async function updateTask(
   id: string,
-  updates: Partial<Pick<Task, 'title' | 'description' | 'project' | 'context' | 'notes' | 'waitingFor' | 'dueDate' | 'isProject' | 'parentId'>>
+  updates: Partial<Pick<Task, 'title' | 'description' | 'project' | 'context' | 'notes' | 'waitingFor' | 'dueDate' | 'isProject' | 'parentId' | 'isFocused' | 'effort'>>
 ): Promise<void> {
   await ensureInitialized();
 
@@ -274,6 +309,8 @@ export async function updateTask(
       if (updates.dueDate !== undefined) task.dueDate = updates.dueDate;
       if (updates.isProject !== undefined) task.isProject = updates.isProject;
       if (updates.parentId !== undefined) task.parentId = updates.parentId;
+      if (updates.isFocused !== undefined) task.isFocused = updates.isFocused;
+      if (updates.effort !== undefined) task.effort = updates.effort;
       task.updatedAt = nowUnix();
     }
     return;
@@ -320,6 +357,14 @@ export async function updateTask(
     fields.push('parent_id = ?');
     values.push(updates.parentId ?? null);
   }
+  if (updates.isFocused !== undefined) {
+    fields.push('is_focused = ?');
+    values.push(updates.isFocused ? 1 : 0);
+  }
+  if (updates.effort !== undefined) {
+    fields.push('effort = ?');
+    values.push(updates.effort ?? null);
+  }
 
   if (fields.length === 0) return;
 
@@ -338,9 +383,64 @@ export async function deleteTask(id: string): Promise<void> {
 
   if (Platform.OS === 'web') {
     memoryTasks = memoryTasks.filter(t => t.id !== id);
+    memoryComments = memoryComments.filter(c => c.taskId !== id);
     return;
   }
 
   if (!db) throw new Error('Database not initialized');
   await db.runAsync('DELETE FROM tasks WHERE id = ?', [id]);
+}
+
+// --- Comment CRUD ---
+
+export async function getComments(taskId: string): Promise<Comment[]> {
+  await ensureInitialized();
+
+  if (Platform.OS === 'web') {
+    return memoryComments
+      .filter(c => c.taskId === taskId)
+      .sort((a, b) => b.createdAt - a.createdAt);
+  }
+
+  if (!db) throw new Error('Database not initialized');
+
+  const rows = await db.getAllAsync<CommentRow>(
+    'SELECT * FROM comments WHERE task_id = ? ORDER BY created_at DESC',
+    [taskId]
+  );
+  return rows.map(rowToComment);
+}
+
+export async function addComment(taskId: string, content: string): Promise<Comment> {
+  await ensureInitialized();
+
+  const now = nowUnix();
+  const id = generateUUID();
+
+  if (Platform.OS === 'web') {
+    const comment: Comment = { id, taskId, content: content.trim(), createdAt: now };
+    memoryComments.unshift(comment);
+    return comment;
+  }
+
+  if (!db) throw new Error('Database not initialized');
+
+  await db.runAsync(
+    'INSERT INTO comments (id, task_id, content, created_at) VALUES (?, ?, ?, ?)',
+    [id, taskId, content.trim(), now]
+  );
+
+  return { id, taskId, content: content.trim(), createdAt: now };
+}
+
+export async function deleteComment(id: string): Promise<void> {
+  await ensureInitialized();
+
+  if (Platform.OS === 'web') {
+    memoryComments = memoryComments.filter(c => c.id !== id);
+    return;
+  }
+
+  if (!db) throw new Error('Database not initialized');
+  await db.runAsync('DELETE FROM comments WHERE id = ?', [id]);
 }

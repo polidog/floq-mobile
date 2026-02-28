@@ -1,4 +1,5 @@
 export type TaskStatus = 'inbox' | 'next' | 'waiting' | 'someday' | 'done';
+export type EffortSize = 'small' | 'medium' | 'large';
 
 export interface Task {
   id: string;
@@ -12,6 +13,8 @@ export interface Task {
   dueDate?: number;
   project?: string;
   notes?: string;
+  isFocused: boolean;
+  effort?: EffortSize;
   createdAt: number;
   updatedAt: number;
   completedAt?: string;
@@ -50,4 +53,10 @@ export const STATUS_COLORS: Record<TaskStatus, string> = {
   waiting: '#a371f7',
   someday: '#8b949e',
   done: '#3fb950',
+};
+
+export const EFFORT_LABELS: Record<EffortSize, string> = {
+  small: 'S',
+  medium: 'M',
+  large: 'L',
 };
